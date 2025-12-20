@@ -1,0 +1,10 @@
+services:
+  app:
+    build: ..
+    container_name: family-photo-album-app
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    volumes:
+      - ../logs:/app/logs
+      - ../data:/app/data

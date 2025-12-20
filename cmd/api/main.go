@@ -2,16 +2,15 @@
 package main
 
 import (
-	"log"
-	"net/http"
+	"github.com/gofiber/fiber/v2"
 )
 
 func main() {
-	http.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+	app := fiber.New()
+
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.SendString("Family Photo Album API v0.1 is running!")
 	})
 
-	log.Println("API started on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	app.Listen(":8080")
 }
