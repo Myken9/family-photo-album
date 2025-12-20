@@ -1,0 +1,14 @@
+# IDE и конфиги
+.idea
+.vscode
+
+# Логи
+logs/
+*.log
+
+# Сборки
+api
+*.exe
+
+# Git
+.git
