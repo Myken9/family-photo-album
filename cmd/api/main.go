@@ -12,5 +12,5 @@ func main() {
 		return c.SendString("Family Photo Album API v0.1 is running!")
 	})
 
-	app.Listen(":8080")
+	app.Listen(":8080") //nolint:errcheck
 }
