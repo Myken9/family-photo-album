@@ -1,6 +1,6 @@
 services:
   app:
-    build: ..
+    build: .
     container_name: family-photo-album-app
     ports:
       - "8080:8080"
