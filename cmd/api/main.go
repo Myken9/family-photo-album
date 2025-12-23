@@ -9,7 +9,7 @@ func main() {
 	app := fiber.New()
 
 	app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("Family Photo Album API v1.0 is running!")
+		return c.SendString("Family Photo Album API v1.1 is running!")
 	})
 
 	app.Listen(":8080") //nolint:errcheck
