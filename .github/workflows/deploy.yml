@@ -20,5 +20,6 @@ jobs:
           script: |
             set -e
             cd ~/apps/family-photo-album
-            docker compose pull
+            git fetch origin main
+            git reset --hard origin/main
             docker compose up -d --build
