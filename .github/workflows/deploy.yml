@@ -1,13 +1,25 @@
-- name: Deploy on server
-  uses: appleboy/ssh-action@v0.1.6
-  with:
-    host: ${{ secrets.SERVER_IP }}
-    username: ${{ secrets.SERVER_USER }}
-    key: ${{ secrets.SSH_PRIVATE_KEY }}
-    port: 22
-    script: |
-      set -e
-      cd ~/apps/family-photo-album
-      git pull
-      docker compose pull
-      docker compose up -d --build
+name: Deploy Family Photo Album
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v0.1.6
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            set -e
+            cd ~/apps/family-photo-album
+            git pull
+            docker compose pull
+            docker compose up -d --build
