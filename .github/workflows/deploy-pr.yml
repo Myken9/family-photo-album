@@ -97,19 +97,24 @@ jobs:
 
       - name: Comment PR with environment URL
         if: github.event.action != 'closed'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const prNumber = context.payload.pull_request.number;
-            const prPort = 8000 + prNumber;
-            const prUrl = `http://66.248.207.167:${prPort}`;
-            
-            github.rest.issues.createComment({
-              issue_number: prNumber,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `🚀 PR Environment deployed!\n\n**Access your environment here:**\n🔗 ${prUrl}\n\n*This environment will be automatically removed when the PR is closed.*`
-            });
+        env:
+          # Используем персональный токен с правами на запись
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          PR_ID=${{ github.event.pull_request.number }}
+          PR_PORT=$((8000 + PR_ID))
+          PR_URL="http://66.248.207.167:${PR_PORT}"
+
+          # Формируем тело комментария
+          COMMENT_BODY="🚀 PR Environment deployed!
+
+          **Access your environment here:**
+          🔗 ${PR_URL}
+
+          *This environment will be automatically removed when the PR is closed.*"
+
+          # Отправляем комментарий через GitHub CLI
+          echo "${COMMENT_BODY}" | gh pr comment ${PR_ID} --body-file -
 
       - name: Remove PR environment
         if: github.event.action == 'closed'
