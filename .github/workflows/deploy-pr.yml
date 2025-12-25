@@ -32,12 +32,14 @@ jobs:
           script: |
             set -e
             PR_DIR=~/apps/pr-${PR_ID}
-            rm -rf ${PR_DIR}               # удаляем старую директорию, если есть
+            rm -rf ${PR_DIR}           # удаляем старую директорию, если есть
             mkdir -p ${PR_DIR}
             cd ${PR_DIR}
             git clone -b ${{ github.head_ref }} git@github.com:Myken9/family-photo-album.git .
-            export PORT=${PR_PORT}         # динамический порт
+            export PR_ID=${PR_ID}      # ключ для контейнера
+            export PORT=${PR_PORT}     # динамический порт
             docker compose -f docker-compose.yml -p pr-${PR_ID} up -d --build
+      
 
       - name: Remove PR environment
         if: github.event.action == 'closed'
