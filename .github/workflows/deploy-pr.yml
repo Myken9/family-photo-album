@@ -1,0 +1,58 @@
+name: PR Dynamic Environment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+jobs:
+  deploy-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set PR environment variables
+        run: |
+          echo "PR_ID=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+          # Динамический порт: 8xxx + PR_ID
+          PR_PORT=$((8000 + ${{ github.event.pull_request.number }}))
+          echo "PR_PORT=${PR_PORT}" >> $GITHUB_ENV
+          PR_URL="http://66.248.207.167:${PR_PORT}"
+          echo "PR_URL=${PR_URL}" >> $GITHUB_ENV
+          echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+          echo "✅ PR Environment URL: ${PR_URL}"
+
+      - name: Deploy PR environment
+        if: github.event.action != 'closed'
+        uses: appleboy/ssh-action@v0.1.6
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            set -e
+            PR_DIR=~/apps/pr-${PR_ID}
+            mkdir -p ${PR_DIR}
+            cd ${PR_DIR}
+            # Клонируем код из ветки PR
+            git clone -b ${{ github.head_ref }} git@github.com:Myken9/family-photo-album.git .
+            # Поднимаем контейнер на отдельном порту
+            docker compose -f docker-compose.yml up -d --build
+
+      - name: Remove PR environment
+        if: github.event.action == 'closed'
+        uses: appleboy/ssh-action@v0.1.6
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            set -e
+            PR_DIR=~/apps/pr-${{ github.event.pull_request.number }}
+            if [ -d "${PR_DIR}" ]; then
+              cd ${PR_DIR}
+              docker compose down
+              rm -rf ${PR_DIR}
+            fi
