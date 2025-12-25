@@ -13,15 +13,13 @@ jobs:
 
       - name: Set PR environment variables
         run: |
-          PR_ID=${{ github.event.pull_request.number }}
-          PR_PORT=$((8000 + PR_ID))
-          PR_URL="http://66.248.207.167:${PR_PORT}"
-
-          echo "PR_ID=${PR_ID}" >> $GITHUB_ENV
+          echo "PR_ID=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+          # Динамический порт: 8000 + номер PR
+          PR_PORT=$((8000 + ${{ github.event.pull_request.number }}))
           echo "PR_PORT=${PR_PORT}" >> $GITHUB_ENV
+          PR_URL="http://66.248.207.167:${PR_PORT}"
           echo "PR_URL=${PR_URL}" >> $GITHUB_ENV
           echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
-
           echo "✅ PR Environment URL: ${PR_URL}"
 
       - name: Deploy PR environment
@@ -35,16 +33,15 @@ jobs:
           script: |
             set -e
             PR_DIR=~/apps/pr-${PR_ID}
+            # Удаляем старую директорию
             rm -rf ${PR_DIR}
             mkdir -p ${PR_DIR}
             cd ${PR_DIR}
-
+            # Клонируем ветку PR
             git clone -b ${{ github.head_ref }} git@github.com:Myken9/family-photo-album.git .
-
-            # Передаем переменные для docker-compose
-            export PR_ID=${PR_ID}
+            # Экспортируем порт для docker compose
             export PR_PORT=${PR_PORT}
-
+            # Поднимаем контейнер с динамическим портом
             docker compose -f docker-compose.yml -p pr-${PR_ID} up -d --build
 
       - name: Remove PR environment
