@@ -3,9 +3,9 @@ version: "3.9"
 services:
   app:
     build: .
-    # container_name убрали
+    container_name: "app-${PR_ID}"        # контейнер уникален для каждого PR
     ports:
-      - "${PORT:-8080}:8080"  # динамический порт через переменную PORT, по умолчанию 8080
+      - "${PORT:-8080}:8080"             # динамический порт через переменную PORT
     restart: unless-stopped
     volumes:
       - ../logs:/app/logs
