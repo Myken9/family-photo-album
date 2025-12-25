@@ -95,26 +95,35 @@ jobs:
             
             echo "🌐 PR environment should be available at: http://66.248.207.167:${PR_PORT}"
 
-      - name: Comment PR with environment URL
+      - name: Update or create PR comment
         if: github.event.action != 'closed'
         env:
-          # Используем персональный токен с правами на запись
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           PR_ID=${{ github.event.pull_request.number }}
           PR_PORT=$((8000 + PR_ID))
           PR_URL="http://66.248.207.167:${PR_PORT}"
 
-          # Формируем тело комментария
-          COMMENT_BODY="🚀 PR Environment deployed!
+          COMMENT_BODY="🚀 **PR Environment:** ${PR_URL}
 
-          **Access your environment here:**
-          🔗 ${PR_URL}
+          *Обновлено: $(date -u +'%Y-%m-%d %H:%M UTC')*
+          *Создано из ветки: ${{ github.head_ref }}*
+          *Будет удалено автоматически при закрытии PR*"
 
-          *This environment will be automatically removed when the PR is closed.*"
+          # Ищем ID существующего комментария от workflow
+          COMMENT_ID=$(gh api repos/${{ github.repository }}/issues/${PR_ID}/comments \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | .id' | head -1)
 
-          # Отправляем комментарий через GitHub CLI
-          echo "${COMMENT_BODY}" | gh pr comment ${PR_ID} --body-file -
+          if [ -n "$COMMENT_ID" ]; then
+            # Обновляем существующий комментарий
+            gh api repos/${{ github.repository }}/issues/comments/${COMMENT_ID} \
+              -X PATCH -f body="${COMMENT_BODY}"
+            echo "✅ Комментарий обновлен"
+          else
+            # Создаем новый, если не нашли
+            gh pr comment ${PR_ID} --body "${COMMENT_BODY}"
+            echo "✅ Новый комментарий создан"
+          fi
 
       - name: Remove PR environment
         if: github.event.action == 'closed'
