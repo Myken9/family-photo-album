@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: "family-photo-album-prod"
+    ports:
+      - "8080:8080"  # Фиксированный порт для продакшена
+    environment:
+      - PORT=8080
+      - NODE_ENV=production
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
