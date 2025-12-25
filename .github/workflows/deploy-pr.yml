@@ -32,10 +32,13 @@ jobs:
           script: |
             set -e
             PR_DIR=~/apps/pr-${PR_ID}
+            # Удаляем старую директорию, если есть
+            rm -rf ${PR_DIR}
             mkdir -p ${PR_DIR}
             cd ${PR_DIR}
+            # Клонируем код из PR ветки
             git clone -b ${{ github.head_ref }} git@github.com:Myken9/family-photo-album.git .
-            export PORT=${PR_PORT}
+            # Поднимаем контейнер на отдельном порту
             docker compose -f docker-compose.yml -p pr-${PR_ID} up -d --build
 
       - name: Remove PR environment
@@ -51,6 +54,6 @@ jobs:
             PR_DIR=~/apps/pr-${{ github.event.pull_request.number }}
             if [ -d "${PR_DIR}" ]; then
               cd ${PR_DIR}
-              docker compose -f docker-compose.yml -p pr-${{ github.event.pull_request.number }} down
+              docker compose down
               rm -rf ${PR_DIR}
             fi
