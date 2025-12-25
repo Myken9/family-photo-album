@@ -4,6 +4,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
 
+env:
+  # Динамические переменные для всего workflow
+  PR_ID: ${{ github.event.pull_request.number }}
+  PR_PORT: ${{ 8000 + github.event.pull_request.number }}
+
 jobs:
   deploy-pr:
     runs-on: ubuntu-latest
@@ -14,13 +19,13 @@ jobs:
       - name: Set PR environment variables
         run: |
           echo "PR_ID=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
-          # Динамический порт: 8000 + номер PR
           PR_PORT=$((8000 + ${{ github.event.pull_request.number }}))
           echo "PR_PORT=${PR_PORT}" >> $GITHUB_ENV
           PR_URL="http://66.248.207.167:${PR_PORT}"
           echo "PR_URL=${PR_URL}" >> $GITHUB_ENV
           echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
           echo "✅ PR Environment URL: ${PR_URL}"
+          echo "🔄 Using port: ${PR_PORT}"
 
       - name: Deploy PR environment
         if: github.event.action != 'closed'
@@ -32,17 +37,52 @@ jobs:
           port: 22
           script: |
             set -e
+            PR_ID=${{ env.PR_ID }}
+            PR_PORT=${{ env.PR_PORT }}
+            
+            echo "📦 Deploying PR #${PR_ID} on port ${PR_PORT}"
+            
             PR_DIR=~/apps/pr-${PR_ID}
+            
+            # Проверяем, занят ли порт
+            if ss -tulpn | grep ":${PR_PORT} "; then
+              echo "⚠️  Port ${PR_PORT} is already in use, trying to free it..."
+              # Останавливаем контейнер, который использует этот порт
+              docker ps --format '{{.Names}}' | grep pr- | while read container; do
+                if docker port "$container" | grep ":${PR_PORT}->"; then
+                  echo "Stopping container $container using port ${PR_PORT}"
+                  docker stop "$container"
+                  docker rm "$container"
+                fi
+              done
+            fi
+            
             # Удаляем старую директорию
             rm -rf ${PR_DIR}
             mkdir -p ${PR_DIR}
             cd ${PR_DIR}
+            
             # Клонируем ветку PR
             git clone -b ${{ github.head_ref }} git@github.com:Myken9/family-photo-album.git .
-            # Экспортируем порт для docker compose
-            export PR_PORT=${PR_PORT}
-            # Поднимаем контейнер с динамическим портом
-            docker compose -f docker-compose.yml -p pr-${PR_ID} up -d --build
+            
+            # Создаем .env файл с переменными
+            echo "PR_ID=${PR_ID}" > .env
+            echo "PR_PORT=${PR_PORT}" >> .env
+            
+            # Проверяем, что переменные установлены
+            echo "🔧 Environment variables:"
+            cat .env
+            
+            # Поднимаем контейнер с явным указанием .env файла
+            docker compose --env-file .env -f docker-compose.yml -p pr-${PR_ID} up -d --build
+            
+            # Проверяем запущенные контейнеры и их порты
+            echo "📊 Running containers:"
+            docker ps --format "table {{.Names}}\t{{.Ports}}"
+            
+            # Проверяем конкретно наш контейнер
+            echo "🔍 Checking app-${PR_ID} container:"
+            docker port app-${PR_ID}
 
       - name: Remove PR environment
         if: github.event.action == 'closed'
@@ -54,9 +94,22 @@ jobs:
           port: 22
           script: |
             set -e
-            PR_DIR=~/apps/pr-${{ github.event.pull_request.number }}
+            PR_ID=${{ github.event.pull_request.number }}
+            PR_DIR=~/apps/pr-${PR_ID}
+            
+            echo "🗑️  Removing PR #${PR_ID} environment"
+            
             if [ -d "${PR_DIR}" ]; then
               cd ${PR_DIR}
-              docker compose down
+              docker compose -p pr-${PR_ID} down -v
+              cd ..
               rm -rf ${PR_DIR}
             fi
+            
+            # Удаляем контейнер, если он остался
+            if docker ps -a --format '{{.Names}}' | grep -q "app-${PR_ID}"; then
+              docker stop "app-${PR_ID}" || true
+              docker rm "app-${PR_ID}" || true
+            fi
+            
+            echo "✅ PR #${PR_ID} environment removed"
