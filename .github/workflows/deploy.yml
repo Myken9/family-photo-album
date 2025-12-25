@@ -22,4 +22,8 @@ jobs:
             cd ~/apps/family-photo-album
             git fetch origin main
             git reset --hard origin/main
-            docker compose up -d --build
+            
+            # Используем продакшен-конфиг
+            docker compose -f docker-compose.prod.yml up -d --build
+            
+            echo "✅ Production deployed on port 8080"
