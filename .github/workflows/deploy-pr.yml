@@ -39,12 +39,11 @@ jobs:
             mkdir -p ${PR_DIR}
             cd ${PR_DIR}
 
-            # Клонируем код PR ветки
             git clone -b ${{ github.head_ref }} git@github.com:Myken9/family-photo-album.git .
 
-            # Создаем .env для docker-compose
-            echo "PR_ID=${PR_ID}" > .env
-            echo "PR_PORT=${PR_PORT}" >> .env
+            # Передаем переменные для docker-compose
+            export PR_ID=${PR_ID}
+            export PR_PORT=${PR_PORT}
 
             docker compose -f docker-compose.yml -p pr-${PR_ID} up -d --build
 
