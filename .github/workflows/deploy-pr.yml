@@ -4,11 +4,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
 
-env:
-  # Динамические переменные для всего workflow
-  PR_ID: ${{ github.event.pull_request.number }}
-  PR_PORT: ${{ 8000 + github.event.pull_request.number }}
-
 jobs:
   deploy-pr:
     runs-on: ubuntu-latest
@@ -17,15 +12,21 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Set PR environment variables
+        id: vars
         run: |
-          echo "PR_ID=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
-          PR_PORT=$((8000 + ${{ github.event.pull_request.number }}))
-          echo "PR_PORT=${PR_PORT}" >> $GITHUB_ENV
+          PR_ID=${{ github.event.pull_request.number }}
+          PR_PORT=$((8000 + PR_ID))
           PR_URL="http://66.248.207.167:${PR_PORT}"
+          
+          echo "PR_ID=${PR_ID}" >> $GITHUB_ENV
+          echo "PR_PORT=${PR_PORT}" >> $GITHUB_ENV
           echo "PR_URL=${PR_URL}" >> $GITHUB_ENV
+          echo "pr_id=${PR_ID}" >> $GITHUB_OUTPUT
+          echo "pr_port=${PR_PORT}" >> $GITHUB_OUTPUT
           echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+          
           echo "✅ PR Environment URL: ${PR_URL}"
-          echo "🔄 Using port: ${PR_PORT}"
+          echo "🔄 Using port: ${PR_PORT} for PR #${PR_ID}"
 
       - name: Deploy PR environment
         if: github.event.action != 'closed'
@@ -37,6 +38,8 @@ jobs:
           port: 22
           script: |
             set -e
+            
+            # Используем переменные из env
             PR_ID=${{ env.PR_ID }}
             PR_PORT=${{ env.PR_PORT }}
             
@@ -45,14 +48,15 @@ jobs:
             PR_DIR=~/apps/pr-${PR_ID}
             
             # Проверяем, занят ли порт
+            echo "🔍 Checking port ${PR_PORT}..."
             if ss -tulpn | grep ":${PR_PORT} "; then
               echo "⚠️  Port ${PR_PORT} is already in use, trying to free it..."
               # Останавливаем контейнер, который использует этот порт
-              docker ps --format '{{.Names}}' | grep pr- | while read container; do
-                if docker port "$container" | grep ":${PR_PORT}->"; then
+              docker ps --format '{{.Names}}' | grep -E "(app-|pr-)" | while read container; do
+                if docker port "$container" 2>/dev/null | grep ":${PR_PORT}->"; then
                   echo "Stopping container $container using port ${PR_PORT}"
-                  docker stop "$container"
-                  docker rm "$container"
+                  docker stop "$container" 2>/dev/null || true
+                  docker rm "$container" 2>/dev/null || true
                 fi
               done
             fi
@@ -66,8 +70,10 @@ jobs:
             git clone -b ${{ github.head_ref }} git@github.com:Myken9/family-photo-album.git .
             
             # Создаем .env файл с переменными
-            echo "PR_ID=${PR_ID}" > .env
-            echo "PR_PORT=${PR_PORT}" >> .env
+            cat > .env << EOF
+            PR_ID=${PR_ID}
+            PR_PORT=${PR_PORT}
+            EOF
             
             # Проверяем, что переменные установлены
             echo "🔧 Environment variables:"
@@ -76,13 +82,34 @@ jobs:
             # Поднимаем контейнер с явным указанием .env файла
             docker compose --env-file .env -f docker-compose.yml -p pr-${PR_ID} up -d --build
             
+            # Ждем немного, чтобы контейнер запустился
+            sleep 5
+            
             # Проверяем запущенные контейнеры и их порты
             echo "📊 Running containers:"
-            docker ps --format "table {{.Names}}\t{{.Ports}}"
+            docker ps --format "table {{.Names}}\t{{.Ports}}" | grep -E "(app-|pr-)" || true
             
             # Проверяем конкретно наш контейнер
             echo "🔍 Checking app-${PR_ID} container:"
-            docker port app-${PR_ID}
+            docker port app-${PR_ID} || echo "Container not found or no ports exposed"
+            
+            echo "🌐 PR environment should be available at: http://66.248.207.167:${PR_PORT}"
+
+      - name: Comment PR with environment URL
+        if: github.event.action != 'closed'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const prPort = 8000 + prNumber;
+            const prUrl = `http://66.248.207.167:${prPort}`;
+            
+            github.rest.issues.createComment({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🚀 PR Environment deployed!\n\n**Access your environment here:**\n🔗 ${prUrl}\n\n*This environment will be automatically removed when the PR is closed.*`
+            });
 
       - name: Remove PR environment
         if: github.event.action == 'closed'
@@ -101,15 +128,19 @@ jobs:
             
             if [ -d "${PR_DIR}" ]; then
               cd ${PR_DIR}
-              docker compose -p pr-${PR_ID} down -v
+              docker compose -p pr-${PR_ID} down -v 2>/dev/null || true
               cd ..
               rm -rf ${PR_DIR}
             fi
             
             # Удаляем контейнер, если он остался
             if docker ps -a --format '{{.Names}}' | grep -q "app-${PR_ID}"; then
-              docker stop "app-${PR_ID}" || true
-              docker rm "app-${PR_ID}" || true
+              docker stop "app-${PR_ID}" 2>/dev/null || true
+              docker rm "app-${PR_ID}" 2>/dev/null || true
             fi
+            
+            # Удаляем сеть если существует
+            docker network rm pr-${PR_ID}_default 2>/dev/null || true
+            docker network rm pr-pr-${PR_ID}_default 2>/dev/null || true
             
             echo "✅ PR #${PR_ID} environment removed"
