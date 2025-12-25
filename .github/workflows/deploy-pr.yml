@@ -1,0 +1,160 @@
+name: PR Dynamic Environment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+jobs:
+  deploy-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set PR environment variables
+        id: vars
+        run: |
+          PR_ID=${{ github.event.pull_request.number }}
+          PR_PORT=$((8000 + PR_ID))
+          PR_URL="http://66.248.207.167:${PR_PORT}"
+          
+          echo "PR_ID=${PR_ID}" >> $GITHUB_ENV
+          echo "PR_PORT=${PR_PORT}" >> $GITHUB_ENV
+          echo "PR_URL=${PR_URL}" >> $GITHUB_ENV
+          echo "pr_id=${PR_ID}" >> $GITHUB_OUTPUT
+          echo "pr_port=${PR_PORT}" >> $GITHUB_OUTPUT
+          echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+          
+          echo "✅ PR Environment URL: ${PR_URL}"
+          echo "🔄 Using port: ${PR_PORT} for PR #${PR_ID}"
+
+      - name: Deploy PR environment
+        if: github.event.action != 'closed'
+        uses: appleboy/ssh-action@v0.1.6
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            set -e
+            
+            # Используем переменные из env
+            PR_ID=${{ env.PR_ID }}
+            PR_PORT=${{ env.PR_PORT }}
+            
+            echo "📦 Deploying PR #${PR_ID} on port ${PR_PORT}"
+            
+            PR_DIR=~/apps/pr-${PR_ID}
+            
+            # Проверяем, занят ли порт
+            echo "🔍 Checking port ${PR_PORT}..."
+            if ss -tulpn | grep ":${PR_PORT} "; then
+              echo "⚠️  Port ${PR_PORT} is already in use, trying to free it..."
+              # Останавливаем контейнер, который использует этот порт
+              docker ps --format '{{.Names}}' | grep -E "(app-|pr-)" | while read container; do
+                if docker port "$container" 2>/dev/null | grep ":${PR_PORT}->"; then
+                  echo "Stopping container $container using port ${PR_PORT}"
+                  docker stop "$container" 2>/dev/null || true
+                  docker rm "$container" 2>/dev/null || true
+                fi
+              done
+            fi
+            
+            # Удаляем старую директорию
+            rm -rf ${PR_DIR}
+            mkdir -p ${PR_DIR}
+            cd ${PR_DIR}
+            
+            # Клонируем ветку PR
+            git clone -b ${{ github.head_ref }} git@github.com:Myken9/family-photo-album.git .
+            
+            # Создаем .env файл с переменными
+            cat > .env << EOF
+            PR_ID=${PR_ID}
+            PR_PORT=${PR_PORT}
+            EOF
+            
+            # Проверяем, что переменные установлены
+            echo "🔧 Environment variables:"
+            cat .env
+            
+            # Поднимаем контейнер с явным указанием .env файла
+            docker compose --env-file .env -f docker-compose.yml -p pr-${PR_ID} up -d --build
+            
+            # Ждем немного, чтобы контейнер запустился
+            sleep 5
+            
+            # Проверяем запущенные контейнеры и их порты
+            echo "📊 Running containers:"
+            docker ps --format "table {{.Names}}\t{{.Ports}}" | grep -E "(app-|pr-)" || true
+            
+            # Проверяем конкретно наш контейнер
+            echo "🔍 Checking app-${PR_ID} container:"
+            docker port app-${PR_ID} || echo "Container not found or no ports exposed"
+            
+            echo "🌐 PR environment should be available at: http://66.248.207.167:${PR_PORT}"
+
+      - name: Update or create PR comment
+        if: github.event.action != 'closed'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          PR_ID=${{ github.event.pull_request.number }}
+          PR_PORT=$((8000 + PR_ID))
+          PR_URL="http://66.248.207.167:${PR_PORT}"
+
+          COMMENT_BODY="🚀 **PR Environment:** ${PR_URL}
+
+          *Обновлено: $(date -u +'%Y-%m-%d %H:%M UTC')*
+          *Создано из ветки: ${{ github.head_ref }}*
+          *Будет удалено автоматически при закрытии PR*"
+
+          # Ищем ID существующего комментария от workflow
+          COMMENT_ID=$(gh api repos/${{ github.repository }}/issues/${PR_ID}/comments \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | .id' | head -1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            # Обновляем существующий комментарий
+            gh api repos/${{ github.repository }}/issues/comments/${COMMENT_ID} \
+              -X PATCH -f body="${COMMENT_BODY}"
+            echo "✅ Комментарий обновлен"
+          else
+            # Создаем новый, если не нашли
+            gh pr comment ${PR_ID} --body "${COMMENT_BODY}"
+            echo "✅ Новый комментарий создан"
+          fi
+
+      - name: Remove PR environment
+        if: github.event.action == 'closed'
+        uses: appleboy/ssh-action@v0.1.6
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            set -e
+            PR_ID=${{ github.event.pull_request.number }}
+            PR_DIR=~/apps/pr-${PR_ID}
+            
+            echo "🗑️  Removing PR #${PR_ID} environment"
+            
+            if [ -d "${PR_DIR}" ]; then
+              cd ${PR_DIR}
+              docker compose -p pr-${PR_ID} down -v 2>/dev/null || true
+              cd ..
+              rm -rf ${PR_DIR}
+            fi
+            
+            # Удаляем контейнер, если он остался
+            if docker ps -a --format '{{.Names}}' | grep -q "app-${PR_ID}"; then
+              docker stop "app-${PR_ID}" 2>/dev/null || true
+              docker rm "app-${PR_ID}" 2>/dev/null || true
+            fi
+            
+            # Удаляем сеть если существует
+            docker network rm pr-${PR_ID}_default 2>/dev/null || true
+            docker network rm pr-pr-${PR_ID}_default 2>/dev/null || true
+            
+            echo "✅ PR #${PR_ID} environment removed"
